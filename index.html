@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Attendance Records</title>
+    <link
+      rel="stylesheet"
+      href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css"
+    />
+    <style>
+      .dropzone {
+        border: 2px dashed #ccc;
+        padding: 50px;
+        text-align: center;
+        cursor: pointer;
+      }
+      .late-checkin,
+      .early-checkout {
+        background-color: #f5c6cb;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container mt-5">
+      <div class="card" id="uploader">
+        <div class="card-header">
+          <h5 class="card-title">Attendance Records</h5>
+        </div>
+        <div class="card-body">
+          <div id="dropzone" class="dropzone" class="mb-4">
+            <div class="dz-message">
+              Drag and drop or click to upload a file
+            </div>
+          </div>
+          <div class="form-group month-selector" id="monthSelectorDiv">
+            <label for="monthSelector">Select Month:</label>
+            <select id="monthSelector" class="form-control">
+              <!-- Populate with month options -->
+            </select>
+          </div>
+          <table id="recordTable" class="table record-table">
+            <thead>
+              <tr>
+                <th>Employer ID</th>
+                <th>Total Absent Days</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div
+        class="modal fade"
+        id="attendanceModal"
+        tabindex="-1"
+        role="dialog"
+        aria-labelledby="attendanceModalLabel"
+        aria-hidden="true"
+      >
+        <div class="modal-dialog" role="document">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="attendanceModalLabel">
+                Attendance Details
+              </h5>
+              <button
+                type="button"
+                class="close"
+                data-dismiss="modal"
+                aria-label="Close"
+              >
+                <span aria-hidden="true">&times;</span>
+              </button>
+            </div>
+            <div class="modal-body">
+              <table id="attendanceTable" class="table table-striped able-bordered
+              table-hover">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Check-in Time</th>
+                    <th>Check-out Time</th>
+                  </tr>
+                </thead>
+                <tbody id="attendanceTableBody">
+                  <!-- Attendance records will be dynamically inserted here -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dropzone/5.7.2/min/dropzone.min.js"></script>
+    <script src="dateconverter.js"></script>
+    <script>
+      Dropzone.autoDiscover = false;
+
+      $(document).ready(function () {
+        const uploader = $("#uploader");
+        const recordTable = $("#recordTable");
+        const monthSelectorDiv = $("#monthSelectorDiv");
+
+        // monthSelectorDiv.hide();
+        // recordTable.hide();
+        // Dropzone configuration
+        Dropzone.autoDiscover = false;
+        var myDropzone = new Dropzone("#dropzone", {
+          url: "/upload",
+          acceptedFiles: ".txt",
+          maxFiles: 1,
+          init: function () {
+            this.on("addedfile", function (file) {
+              var reader = new FileReader();
+              reader.onload = function (e) {
+                var data = e.target.result;
+                parseAndDisplayData(data);
+              };
+              reader.readAsText(file);
+            });
+
+            // Override uploadFiles method to do nothing
+            this.uploadFiles = function () {};
+          },
+        });
+
+        // Function to parse and display the data
+        function parseAndDisplayData(data) {
+          var records = parseData(data);
+          var filteredRecords = filterByMonth(records);
+          var mergedRecords = mergeRecords(filteredRecords);
+          var sortedRecords = sortRecords(mergedRecords, "employerId");
+
+          // Generate month options for the month selector
+          generateMonthOptions(records);
+
+          // Render the table with the initial data
+          renderTable(sortedRecords, new Date());
+
+          // Event listener for month selector change
+          $("#monthSelector").on("change", function () {
+            var selectedMonth = $(this).val();
+            var filteredRecords = filterByMonth(records, selectedMonth);
+            var mergedRecords = mergeRecords(filteredRecords);
+            var sortedRecords = sortRecords(mergedRecords, "employerId");
+
+            renderTable(sortedRecords, selectedMonth);
+          });
+
+          // Event listener for view detail button
+          $(document).on("click", ".view-detail-btn", function () {
+            var index = $(this).data("index");
+            var selectedMonth = $("#monthSelector").val();
+            var employeeRecords = getEmployeeRecords(index + 1, sortedRecords);
+            console.log(employeeRecords);
+            displayEmployeeRecords(employeeRecords);
+          });
+        }
+
+        // Function to parse the data into records
+        function parseData(data) {
+          var lines = data.trim().split("\n");
+          var records = [];
+
+          for (var i = 0; i < lines.length; i++) {
+            var fields = lines[i].split("\t");
+
+            if (fields.length > 4) {
+              var empId = fields[0].trim();
+              var record = {
+                employerId: empId,
+                date: fields[1],
+                type: fields[3],
+              };
+
+              records.push(record);
+            }
+          }
+
+          return records;
+        }
+
+        // Function to filter records by month
+        function filterByMonth(records, selectedMonth) {
+          selectedMonth = selectedMonth || getFormattedCurrentMonth();
+          return records.filter(function (record) {
+            return record.date.startsWith(selectedMonth);
+          });
+        }
+
+        // Function to sort records based on a given field
+        function sortRecords(records, field) {
+          return records.sort(function (a, b) {
+            return a[field] - b[field];
+          });
+        }
+
+        // Function to generate month options for the month selector
+        function generateMonthOptions(records) {
+          var months = new Set();
+          records.forEach(function (record) {
+            var month = record.date.slice(0, 7);
+            months.add(month);
+          });
+
+          var monthOptions = "";
+          months.forEach(function (month) {
+            monthOptions += `<option value="${month}">${month}</option>`;
+          });
+
+          $("#monthSelector").html(monthOptions);
+        }
+
+        // Function to get attendance records for a specific employee and month
+        function getEmployeeRecords(employeeId, sortedRecords) {
+          var groupedRecords = groupRecordsByEmployerId(sortedRecords);
+          //todo filter by month
+          return groupedRecords[employeeId - 1];
+
+          // Return the filtered records
+        }
+
+        // Function to display the employee's attendance records
+        function displayEmployeeRecords(records) {
+          // Populate the modal with attendance information
+          populateAttendanceModal(records);
+
+          // Show the modal
+          $("#attendanceModal").modal("show");
+          console.log(records);
+          // Perform the necessary logic to render the employee's attendance records in a modal or a separate page
+        }
+        // Helper function to check if the check-in time is late
+        function isLateCheckin(checkinDate) {
+          var checkinTime = new Date(checkinDate).getTime();
+          var officeStartTime = new Date(checkinDate.split(" ")[0] + " 10:15:00").getTime();
+          return checkinTime > officeStartTime;
+        }
+
+        // Helper function to check if the checkout time is early
+        function isEarlyCheckout(checkoutDate) {
+          var checkoutTime = new Date(checkoutDate).getTime();
+          var officeEndTime = new Date(checkoutDate.split(" ")[0] + " 17:45:00").getTime();
+          return checkoutTime < officeEndTime;
+        }
+
+        function populateAttendanceModal(attendanceRecords) {
+          var tableBody = $("#attendanceTableBody");
+          tableBody.empty();
+          for (var i = 0; i < attendanceRecords.length; i++) {
+            var attendance = attendanceRecords[i];
+            var date = attendance.checkin_date.split(" ")[0];
+            if(date ==="") {
+              date = attendance.checkout_date.split(" ")[0]
+            }
+            var row = $("<tr>");
+
+            var isLateCheckIn = isLateCheckin(attendance.checkin_date);
+            var isEarlyCheckOut = isEarlyCheckout(attendance.checkout_date);
+
+            row.append($("<td>").text(date));
+
+            var checkinTimeCell = $("<td>").text(
+              attendance.checkin_date.split(" ")[1]
+            );
+            if (isLateCheckIn) {
+              checkinTimeCell.addClass("late-checkin");
+            }
+            row.append(checkinTimeCell);
+
+            var checkoutTimeCell = $("<td>").text(
+              attendance.checkout_date.split(" ")[1]
+            );
+            if (isEarlyCheckOut) {
+              checkoutTimeCell.addClass("early-checkout");
+            }
+            row.append(checkoutTimeCell);
+            tableBody.append(row);
+          }
+        }
+
+        // Helper function to get the current month in 'YYYY-MM' format
+        function getFormattedCurrentMonth() {
+          var now = new Date();
+          var year = now.getFullYear();
+          var month = (now.getMonth() + 1).toString().padStart(2, "0");
+
+          return year + "-" + month;
+        }
+
+        // Function to merge records for the same employer and same day
+        function mergeRecords(records) {
+          var mergedRecords = {};
+
+          for (var i = 0; i < records.length; i++) {
+            var record = records[i];
+            var empId = record.employerId;
+            var date = record.date.split(" ")[0];
+            var key = empId + "_" + date;
+
+            if (!mergedRecords[key]) {
+              mergedRecords[key] = {
+                employerId: record.employerId,
+                checkin_date: "",
+                checkout_date: "",
+              };
+            }
+
+            if (record.type === "0") {
+              mergedRecords[key].checkin_date = record.date;
+            } else if (record.type === "1") {
+              mergedRecords[key].checkout_date = record.date;
+            }
+          }
+
+          return Object.values(mergedRecords);
+        }
+
+        function groupRecordsByEmployerId(records) {
+          var mergedRecords = {};
+
+          for (var i = 0; i < records.length; i++) {
+            var record = records[i];
+            var key = record.employerId;
+
+            if (!mergedRecords[key]) {
+              mergedRecords[key] = [];
+            }
+
+            mergedRecords[key].push(record);
+          }
+
+          return Object.values(mergedRecords);
+        }
+
+        // Function to calculate absent days based on the merged records
+        function calculateAbsentDays(records, month) {
+          var totalDays = new Date(
+            month.getFullYear(),
+            month.getMonth() + 1,
+            0
+          ).getDate();
+          var absentDays = [];
+
+          for (var day = 1; day <= totalDays; day++) {
+            var date = new Date(month.getFullYear(), month.getMonth(), day);
+            if (date.getDay() !== 6) {
+              absentDays.push(day);
+            }
+          }
+
+          for (var i = 0; i < records.length; i++) {
+            var record = records[i];
+
+            if (record.checkin_date && record.checkout_date) {
+              var checkinDay = parseInt(record.checkin_date.split("-")[2]);
+              var checkoutDay = parseInt(record.checkout_date.split("-")[2]);
+
+              for (var j = checkinDay; j <= checkoutDay; j++) {
+                var index = absentDays.indexOf(j);
+                if (index !== -1) {
+                  absentDays.splice(index, 1);
+                }
+              }
+            }
+          }
+
+          return absentDays;
+        }
+
+        // Function to render the table with the merged records
+        function renderTable(records, month) {
+          var tableBody = $("#recordTable tbody");
+          tableBody.empty();
+          var groupedRecords = groupRecordsByEmployerId(records);
+          for (var i = 0; i < groupedRecords.length; i++) {
+            var empRecords = groupedRecords[i];
+            var absentDays = calculateAbsentDays(empRecords, month);
+            var absentCount = absentDays.length;
+            var record = empRecords[0];
+            var row = $("<tr>");
+            row.append($("<td>").text(employees[record.employerId]));
+            row.append($("<td>").text(absentCount));
+            row.append(
+              $("<td>").append(
+                $("<button>")
+                  .text("View Detail")
+                  .addClass("btn btn-primary view-detail-btn")
+                  .data("index", i)
+              )
+            );
+            tableBody.append(row);
+          }
+        }
+
+        const employees = {
+          1: "Sailesh",
+          2: "Hari",
+          3: "Nirmal",
+          4: "Sandhya",
+          5: "Nina",
+          6: "Manoj",
+          7: "Suresh",
+          8: "Aaryan",
+          9: "Muna",
+          10: "Parbati",
+          11: "Asmita",
+          12: "Sarita",
+          13: "Ranju",
+          14: "Uttam",
+          15: "Kishan Dev",
+        };
+
+        // Rest of the code...
+      });
+    </script>
+  </body>
+</html>
