@@ -286,7 +286,7 @@
         function getFormattedCurrentMonth() {
           var now = new Date();
           var year = now.getFullYear();
-          var month = (now.getMonth() + 1).toString().padStart(2, "0");
+          var month = (now.getMonth()).toString().padStart(2, "0");
 
           return year + "-" + month;
         }
